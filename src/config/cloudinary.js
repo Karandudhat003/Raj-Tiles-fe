@@ -1,6 +1,6 @@
+
 const cloudinary = require("cloudinary").v2;
 
-// Option 1: Use CLOUDINARY_URL (simplest method)
 if (process.env.CLOUDINARY_URL) {
     cloudinary.config({
         cloudinary_url: process.env.CLOUDINARY_URL,
@@ -8,7 +8,6 @@ if (process.env.CLOUDINARY_URL) {
     });
     console.log("✅ Cloudinary configured using CLOUDINARY_URL");
 } else {
-    // Option 2: Use individual credentials
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
