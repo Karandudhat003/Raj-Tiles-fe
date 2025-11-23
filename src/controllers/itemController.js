@@ -1,15 +1,9 @@
 
+
 const Item = require("../models/Item");
 const cloudinary = require("../config/cloudinary");
 const streamifier = require("streamifier");
 
-// ==========================================
-// HELPER FUNCTIONS
-// ==========================================
-
-/**
- * Upload image buffer to Cloudinary
- */
 const uploadToCloudinary = (buffer) => {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
@@ -30,28 +24,19 @@ const uploadToCloudinary = (buffer) => {
         }
       }
     );
-
     streamifier.createReadStream(buffer).pipe(uploadStream);
   });
 };
 
-/**
- * Delete image from Cloudinary using URL
- */
 const deleteFromCloudinary = async (imageUrl) => {
   try {
     if (!imageUrl) return;
-
-    // Extract public_id from Cloudinary URL
-    // URL format: https://res.cloudinary.com/{cloud_name}/image/upload/{version}/{public_id}.{format}
     const urlParts = imageUrl.split("/");
     const uploadIndex = urlParts.indexOf("upload");
 
     if (uploadIndex !== -1 && uploadIndex < urlParts.length - 1) {
-      // Get everything after 'upload/' and before the file extension
       const publicIdWithFolder = urlParts.slice(uploadIndex + 2).join("/");
       const publicId = publicIdWithFolder.substring(0, publicIdWithFolder.lastIndexOf("."));
-
       const result = await cloudinary.uploader.destroy(publicId);
       console.log("Deleted from Cloudinary:", publicId, result);
     }
@@ -60,13 +45,6 @@ const deleteFromCloudinary = async (imageUrl) => {
   }
 };
 
-// ==========================================
-// CONTROLLER FUNCTIONS
-// ==========================================
-
-/**
- * ➕ Add new item
- */
 exports.addItem = async (req, res) => {
   try {
     const { name, description, nrp, mrp } = req.body;
@@ -75,7 +53,17 @@ exports.addItem = async (req, res) => {
     console.log("📥 Received data:", { name, description, nrp, mrp });
     console.log("📁 File received:", req.file ? "Yes" : "No");
 
-    // Check if item already exists
+    if (req.file) {
+      console.log("🔍 File details:", {
+        fieldname: req.file.fieldname,
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        hasBuffer: !!req.file.buffer,
+        hasPath: !!req.file.path
+      });
+    }
+
     const existingItem = await Item.findOne({ name });
     if (existingItem) {
       return res.status(400).json({
@@ -84,8 +72,7 @@ exports.addItem = async (req, res) => {
       });
     }
 
-    // Upload image to Cloudinary if provided
-    if (req.file) {
+    if (req.file && req.file.buffer) {
       console.log("☁️ Uploading to Cloudinary...");
       try {
         const result = await uploadToCloudinary(req.file.buffer);
@@ -101,7 +88,6 @@ exports.addItem = async (req, res) => {
       }
     }
 
-    // Create new item
     const newItem = new Item({
       name,
       description: description || "",
@@ -127,9 +113,6 @@ exports.addItem = async (req, res) => {
   }
 };
 
-/**
- * 📋 Get all items
- */
 exports.getAllItems = async (req, res) => {
   try {
     const items = await Item.find().sort({ createdAt: -1 });
@@ -148,9 +131,6 @@ exports.getAllItems = async (req, res) => {
   }
 };
 
-/**
- * 📄 Get single item by ID
- */
 exports.getItemById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -177,15 +157,11 @@ exports.getItemById = async (req, res) => {
   }
 };
 
-/**
- * ✏️ Update item
- */
 exports.updateItem = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, nrp, mrp } = req.body;
 
-    // Find existing item
     const existingItem = await Item.findById(id);
     if (!existingItem) {
       return res.status(404).json({
@@ -201,17 +177,14 @@ exports.updateItem = async (req, res) => {
       mrp: Number(mrp),
     };
 
-    // Upload new image if provided
-    if (req.file) {
+    if (req.file && req.file.buffer) {
       console.log("☁️ Uploading new image to Cloudinary...");
 
       try {
-        // Upload new image
         const result = await uploadToCloudinary(req.file.buffer);
         updateData.image = result.secure_url;
         console.log("✅ New image uploaded:", result.secure_url);
 
-        // Delete old image from Cloudinary
         if (existingItem.image) {
           console.log("🗑️ Deleting old image from Cloudinary...");
           await deleteFromCloudinary(existingItem.image);
@@ -246,9 +219,6 @@ exports.updateItem = async (req, res) => {
   }
 };
 
-/**
- * ❌ Delete item
- */
 exports.deleteItem = async (req, res) => {
   try {
     const { id } = req.params;
@@ -261,7 +231,6 @@ exports.deleteItem = async (req, res) => {
       });
     }
 
-    // Delete image from Cloudinary
     if (item.image) {
       console.log("🗑️ Deleting image from Cloudinary...");
       await deleteFromCloudinary(item.image);
