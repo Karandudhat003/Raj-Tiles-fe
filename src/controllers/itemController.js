@@ -250,8 +250,7 @@
 //       error: error.message,
 //     });
 //   }
-// };
-const Item = require("../models/Item");
+// };const Item = require("../models/Item");
 const cloudinary = require("../config/cloudinary");
 const streamifier = require("streamifier");
 const mongoose = require("mongoose");
@@ -309,43 +308,26 @@ exports.addItem = async (req, res) => {
     const { name, description, nrp, mrp, userId, username } = req.body;
     let imageUrl = null;
 
-    console.log("📥 Received data:", { name, description, nrp, mrp });
-    console.log("📁 File received:", req.file ? "Yes" : "No");
+    console.log("📥 Received data:", { name, description, nrp, mrp, userId, username });
 
-    if (req.file) {
-      console.log("🔍 File details:", {
-        fieldname: req.file.fieldname,
-        originalname: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size: req.file.size,
-        hasBuffer: !!req.file.buffer,
-        hasPath: !!req.file.path
+    // 🔥 STRICT: userId is now REQUIRED
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required to create item. Please login first."
       });
     }
 
-    // 🔥 Get userId from body OR use default user
-    let finalUserId = userId;
-    let finalUsername = username || "Unknown User";
-    
-    if (!finalUserId) {
-      finalUserId = await getDefaultUserId();
-      finalUsername = "user1";
-      console.log("⚠️ No userId provided, using default user1");
+    if (req.file) {
+      console.log("📁 File received:", req.file.originalname);
     }
 
-    // 🔥 Check if item exists - for old data (no createdBy), check globally
-    // For new data with createdBy, check per user
-    let existingItem;
-    if (finalUserId) {
-      existingItem = await Item.findOne({ name, createdBy: finalUserId });
-    } else {
-      existingItem = await Item.findOne({ name, createdBy: { $exists: false } });
-    }
-
+    // 🔥 Check if item exists for THIS USER ONLY
+    const existingItem = await Item.findOne({ name, createdBy: userId });
     if (existingItem) {
       return res.status(400).json({
         success: false,
-        message: "Item with this name already exists",
+        message: "You already have an item with this name",
       });
     }
 
@@ -354,7 +336,7 @@ exports.addItem = async (req, res) => {
       try {
         const result = await uploadToCloudinary(req.file.buffer);
         imageUrl = result.secure_url;
-        console.log("✅ Cloudinary upload successful:", imageUrl);
+        console.log("✅ Cloudinary upload successful");
       } catch (cloudinaryError) {
         console.error("❌ Cloudinary upload failed:", cloudinaryError);
         return res.status(500).json({
@@ -365,23 +347,19 @@ exports.addItem = async (req, res) => {
       }
     }
 
-    const itemData = {
+    const newItem = new Item({
       name,
       description: description || "",
       nrp: Number(nrp) || 0,
       mrp: Number(mrp) || 0,
       image: imageUrl,
-    };
-
-    // 🔥 Only add createdBy if userId exists
-    if (finalUserId) {
-      itemData.createdBy = finalUserId;
-      itemData.createdByUsername = finalUsername;
-    }
-
-    const newItem = new Item(itemData);
+      createdBy: userId,
+      createdByUsername: username || "Unknown"
+    });
 
     await newItem.save();
+
+    console.log(`✅ Item created by user ${username} (${userId})`);
 
     res.status(201).json({
       success: true,
@@ -400,20 +378,22 @@ exports.addItem = async (req, res) => {
 
 exports.getAllItems = async (req, res) => {
   try {
-    // 🔥 Get userId from query OR get all items
+    // 🔥 STRICT: userId is now REQUIRED
     const userId = req.query.userId;
     
-    let query = {};
-    if (userId) {
-      query.createdBy = userId;
-      console.log(`🔍 Filtering items for userId: ${userId}`);
-    } else {
-      console.log("📋 Fetching all items (no userId filter)");
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required as query parameter. Example: /api/items?userId=xxx"
+      });
     }
 
-    const items = await Item.find(query).sort({ createdAt: -1 });
+    console.log(`🔍 Fetching items for userId: ${userId}`);
+
+    // 🔥 ALWAYS filter by userId
+    const items = await Item.find({ createdBy: userId }).sort({ createdAt: -1 });
     
-    console.log(`✅ Found ${items.length} items`);
+    console.log(`✅ Found ${items.length} items for user ${userId}`);
 
     res.status(200).json({
       success: true,
@@ -433,6 +413,15 @@ exports.getAllItems = async (req, res) => {
 exports.getItemById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.query.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required as query parameter"
+      });
+    }
+
     const item = await Item.findById(id);
 
     if (!item) {
@@ -442,9 +431,8 @@ exports.getItemById = async (req, res) => {
       });
     }
 
-    // 🔥 Optional: Check ownership if userId provided
-    const userId = req.query.userId;
-    if (userId && item.createdBy && item.createdBy.toString() !== userId) {
+    // 🔥 STRICT: Check ownership
+    if (item.createdBy && item.createdBy.toString() !== userId) {
       return res.status(403).json({
         success: false,
         message: "Access denied - this item belongs to another user",
@@ -470,6 +458,13 @@ exports.updateItem = async (req, res) => {
     const { id } = req.params;
     const { name, description, nrp, mrp, userId } = req.body;
 
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required in request body"
+      });
+    }
+
     const existingItem = await Item.findById(id);
     if (!existingItem) {
       return res.status(404).json({
@@ -478,8 +473,8 @@ exports.updateItem = async (req, res) => {
       });
     }
 
-    // 🔥 Optional: Check ownership if userId provided
-    if (userId && existingItem.createdBy && existingItem.createdBy.toString() !== userId) {
+    // 🔥 STRICT: Check ownership
+    if (existingItem.createdBy && existingItem.createdBy.toString() !== userId) {
       return res.status(403).json({
         success: false,
         message: "Access denied - you can only edit your own items",
@@ -499,7 +494,7 @@ exports.updateItem = async (req, res) => {
       try {
         const result = await uploadToCloudinary(req.file.buffer);
         updateData.image = result.secure_url;
-        console.log("✅ New image uploaded:", result.secure_url);
+        console.log("✅ New image uploaded");
 
         if (existingItem.image) {
           console.log("🗑️ Deleting old image from Cloudinary...");
@@ -538,6 +533,15 @@ exports.updateItem = async (req, res) => {
 exports.deleteItem = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.query.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required as query parameter"
+      });
+    }
+
     const item = await Item.findById(id);
 
     if (!item) {
@@ -547,9 +551,8 @@ exports.deleteItem = async (req, res) => {
       });
     }
 
-    // 🔥 Optional: Check ownership if userId provided
-    const userId = req.query.userId;
-    if (userId && item.createdBy && item.createdBy.toString() !== userId) {
+    // 🔥 STRICT: Check ownership
+    if (item.createdBy && item.createdBy.toString() !== userId) {
       return res.status(403).json({
         success: false,
         message: "Access denied - you can only delete your own items",
