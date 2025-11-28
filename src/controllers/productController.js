@@ -263,28 +263,21 @@
 //     });
 //   }
 // };
-
-
-
-
 const Product = require("../models/Product");
 const Item = require("../models/Item");
+const mongoose = require("mongoose");
 
-// 🔥 ADD PRODUCT - userId must be sent in request body
+// 🔥 Helper function to get default user ID
+async function getDefaultUserId() {
+  const User = mongoose.model("User");
+  const defaultUser = await User.findOne({ username: "user1" });
+  return defaultUser ? defaultUser._id.toString() : null;
+}
+
+// Add product
 exports.addProduct = async (req, res) => {
   try {
     const data = req.body;
-
-    // 🔥 Get userId from request body
-    const userId = data.userId;
-    const username = data.username || "Unknown User";
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "userId is required in request body"
-      });
-    }
 
     if (!data.name || !data.number || !data.address) {
       return res.status(400).json({
@@ -310,7 +303,17 @@ exports.addProduct = async (req, res) => {
       }
     }
 
-    const newProduct = new Product({
+    // 🔥 Get userId from body OR use default user
+    let userId = data.userId;
+    let username = data.username || "Unknown User";
+    
+    if (!userId) {
+      userId = await getDefaultUserId();
+      username = "user1";
+      console.log("⚠️ No userId provided, using default user1");
+    }
+
+    const productData = {
       name: data.name,
       number: data.number,
       address: data.address,
@@ -319,9 +322,15 @@ exports.addProduct = async (req, res) => {
       value: data.value || "nrp",
       date: data.date || new Date(),
       items: itemsWithQuantity,
-      createdBy: userId,           // 🔥 From request body
-      createdByUsername: username   // 🔥 From request body
-    });
+    };
+
+    // 🔥 Only add createdBy if userId exists
+    if (userId) {
+      productData.createdBy = userId;
+      productData.createdByUsername = username;
+    }
+
+    const newProduct = new Product(productData);
 
     await newProduct.save();
 
@@ -333,7 +342,7 @@ exports.addProduct = async (req, res) => {
       .map(itemEntry => itemEntry.item ? { ...itemEntry.item, quantity: itemEntry.quantity } : null)
       .filter(Boolean);
 
-    console.log("✅ Product created by", username, "with includeGst:", productObj.includeGst);
+    console.log("✅ Product created with includeGst:", productObj.includeGst);
 
     res.status(201).json({
       success: true,
@@ -349,23 +358,21 @@ exports.addProduct = async (req, res) => {
   }
 };
 
-// 🔥 GET ALL PRODUCTS - userId must be sent as query parameter
+// Get all products with populated items
 exports.getProducts = async (req, res) => {
   try {
-    // 🔥 Get userId from query parameter
+    console.log("📥 Fetching all products...");
+
+    // 🔥 Get userId from query OR get all products
     const userId = req.query.userId;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "userId is required as query parameter (?userId=xxx)"
-      });
+    
+    let query = {};
+    if (userId) {
+      query.createdBy = userId;
+      console.log(`🔍 Filtering products for userId: ${userId}`);
+    } else {
+      console.log("📋 Fetching all products (no userId filter)");
     }
-
-    console.log(`📥 User ${userId} fetching products...`);
-
-    // 🔥 Filter by userId
-    const query = { createdBy: userId };
 
     const products = await Product.find(query)
       .populate("items.item")
@@ -373,12 +380,15 @@ exports.getProducts = async (req, res) => {
       .lean();
 
     const transformedProducts = products.map(product => {
+      // Ensure includeGst is always present as boolean
       product.includeGst = product.includeGst === true;
 
+      // Ensure address has default value
       if (!product.address) {
         product.address = "SURAT";
       }
 
+      // Transform items
       product.items = product.items.map(itemEntry => {
         if (itemEntry.item) {
           return {
@@ -392,7 +402,7 @@ exports.getProducts = async (req, res) => {
       return product;
     });
 
-    console.log(`✅ User ${userId} found ${transformedProducts.length} products`);
+    console.log(`✅ Found ${transformedProducts.length} products`);
 
     res.json({
       success: true,
@@ -408,19 +418,9 @@ exports.getProducts = async (req, res) => {
   }
 };
 
-// 🔥 GET PRODUCT BY ID - userId must be sent as query parameter
+// Get product by id
 exports.getProductById = async (req, res) => {
   try {
-    // 🔥 Get userId from query parameter
-    const userId = req.query.userId;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "userId is required as query parameter (?userId=xxx)"
-      });
-    }
-
     console.log("📥 Fetching product:", req.params.id);
 
     const product = await Product.findById(req.params.id)
@@ -434,20 +434,24 @@ exports.getProductById = async (req, res) => {
       });
     }
 
-    // 🔥 Check ownership
-    if (product.createdBy.toString() !== userId) {
+    // 🔥 Optional: Check ownership if userId provided
+    const userId = req.query.userId;
+    if (userId && product.createdBy && product.createdBy.toString() !== userId) {
       return res.status(403).json({
         success: false,
         message: "Access denied - this product belongs to another user",
       });
     }
 
+    // Ensure includeGst is always present as boolean
     product.includeGst = product.includeGst === true;
 
+    // Ensure address has default
     if (!product.address) {
       product.address = "SURAT";
     }
 
+    // Transform items to include quantity
     product.items = product.items.map(itemEntry => {
       if (itemEntry.item) {
         return {
@@ -474,36 +478,28 @@ exports.getProductById = async (req, res) => {
   }
 };
 
-// 🔥 UPDATE PRODUCT - userId must be sent in request body
+// Update product
 exports.editProduct = async (req, res) => {
   try {
     const data = req.body;
-    
-    // 🔥 Get userId from request body
+
+    // 🔥 Optional: Check ownership if userId provided
     const userId = data.userId;
+    if (userId) {
+      const existingProduct = await Product.findById(req.params.id);
+      if (!existingProduct) {
+        return res.status(404).json({
+          success: false,
+          message: "Product not found"
+        });
+      }
 
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "userId is required in request body"
-      });
-    }
-
-    // 🔥 Check if product exists and user owns it
-    const existingProduct = await Product.findById(req.params.id);
-    if (!existingProduct) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found"
-      });
-    }
-
-    // 🔥 Check ownership
-    if (existingProduct.createdBy.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied - you can only edit your own products",
-      });
+      if (existingProduct.createdBy && existingProduct.createdBy.toString() !== userId) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied - you can only edit your own products",
+        });
+      }
     }
 
     if (data.items && Array.isArray(data.items)) {
@@ -530,8 +526,16 @@ exports.editProduct = async (req, res) => {
       { new: true, runValidators: true }
     ).populate("items.item");
 
+    if (!updatedProduct) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
     const productObj = updatedProduct.toObject();
 
+    // Transform items
     productObj.items = productObj.items
       .map(itemEntry => itemEntry.item ? { ...itemEntry.item, quantity: itemEntry.quantity } : null)
       .filter(Boolean);
@@ -552,39 +556,38 @@ exports.editProduct = async (req, res) => {
   }
 };
 
-// 🔥 DELETE PRODUCT - userId must be sent as query parameter
+// Delete product
 exports.deleteProduct = async (req, res) => {
   try {
-    // 🔥 Get userId from query parameter
-    const userId = req.query.userId;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "userId is required as query parameter (?userId=xxx)"
-      });
-    }
-
     console.log("📥 Deleting product:", req.params.id);
 
-    const product = await Product.findById(req.params.id);
+    // 🔥 Optional: Check ownership if userId provided
+    const userId = req.query.userId;
+    if (userId) {
+      const product = await Product.findById(req.params.id);
+      if (!product) {
+        return res.status(404).json({
+          success: false,
+          message: "Product not found"
+        });
+      }
 
-    if (!product) {
+      if (product.createdBy && product.createdBy.toString() !== userId) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied - you can only delete your own products",
+        });
+      }
+    }
+
+    const deletedProduct = await Product.findByIdAndDelete(req.params.id);
+
+    if (!deletedProduct) {
       return res.status(404).json({
         success: false,
         message: "Product not found"
       });
     }
-
-    // 🔥 Check ownership
-    if (product.createdBy.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied - you can only delete your own products",
-      });
-    }
-
-    await Product.findByIdAndDelete(req.params.id);
 
     console.log("✅ Product deleted:", req.params.id);
 
