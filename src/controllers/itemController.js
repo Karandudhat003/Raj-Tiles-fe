@@ -251,16 +251,11 @@
 //     });
 //   }
 // };const Item = require("../models/Item");
+
 const cloudinary = require("../config/cloudinary");
 const streamifier = require("streamifier");
 const mongoose = require("mongoose");
-
-// 🔥 Helper function to get default user ID
-async function getDefaultUserId() {
-  const User = mongoose.model("User");
-  const defaultUser = await User.findOne({ username: "user1" });
-  return defaultUser ? defaultUser._id.toString() : null;
-}
+const Item = require("../models/Item"); // ✅ Added missing import
 
 const uploadToCloudinary = (buffer) => {
   return new Promise((resolve, reject) => {
@@ -310,7 +305,6 @@ exports.addItem = async (req, res) => {
 
     console.log("📥 Received data:", { name, description, nrp, mrp, userId, username });
 
-    // 🔥 STRICT: userId is now REQUIRED
     if (!userId) {
       return res.status(400).json({
         success: false,
@@ -322,7 +316,6 @@ exports.addItem = async (req, res) => {
       console.log("📁 File received:", req.file.originalname);
     }
 
-    // 🔥 Check if item exists for THIS USER ONLY
     const existingItem = await Item.findOne({ name, createdBy: userId });
     if (existingItem) {
       return res.status(400).json({
@@ -378,7 +371,6 @@ exports.addItem = async (req, res) => {
 
 exports.getAllItems = async (req, res) => {
   try {
-    // 🔥 STRICT: userId is now REQUIRED
     const userId = req.query.userId;
     
     if (!userId) {
@@ -390,7 +382,6 @@ exports.getAllItems = async (req, res) => {
 
     console.log(`🔍 Fetching items for userId: ${userId}`);
 
-    // 🔥 ALWAYS filter by userId
     const items = await Item.find({ createdBy: userId }).sort({ createdAt: -1 });
     
     console.log(`✅ Found ${items.length} items for user ${userId}`);
@@ -431,7 +422,6 @@ exports.getItemById = async (req, res) => {
       });
     }
 
-    // 🔥 STRICT: Check ownership
     if (item.createdBy && item.createdBy.toString() !== userId) {
       return res.status(403).json({
         success: false,
@@ -473,7 +463,6 @@ exports.updateItem = async (req, res) => {
       });
     }
 
-    // 🔥 STRICT: Check ownership
     if (existingItem.createdBy && existingItem.createdBy.toString() !== userId) {
       return res.status(403).json({
         success: false,
@@ -551,7 +540,6 @@ exports.deleteItem = async (req, res) => {
       });
     }
 
-    // 🔥 STRICT: Check ownership
     if (item.createdBy && item.createdBy.toString() !== userId) {
       return res.status(403).json({
         success: false,
