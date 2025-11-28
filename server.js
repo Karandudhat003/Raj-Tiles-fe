@@ -202,9 +202,6 @@
 //   console.log(`🚀 Server running at http://localhost:${PORT}`);
 // });
 
-
-
-
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
@@ -278,7 +275,6 @@ process.on("SIGINT", async () => {
 // ==================== ADD DUMMY USERS ====================
 (async () => {
   try {
-    // Create sales user 1 (default user)
     const exists1 = await User.findOne({ username: "user1" });
     if (!exists1) {
       const user1 = new User({
@@ -287,10 +283,9 @@ process.on("SIGINT", async () => {
         role: "sales"
       });
       await user1.save();
-      console.log("✅ Dummy user1 (sales) created - DEFAULT USER");
+      console.log("✅ Dummy user1 (sales) created");
     }
 
-    // Create sales user 2
     const exists2 = await User.findOne({ username: "user2" });
     if (!exists2) {
       const user2 = new User({
@@ -302,7 +297,6 @@ process.on("SIGINT", async () => {
       console.log("✅ Dummy user2 (sales) created");
     }
 
-    // Create admin user
     const existsAdmin = await User.findOne({ username: "admin" });
     if (!existsAdmin) {
       const admin = new User({
@@ -321,24 +315,6 @@ process.on("SIGINT", async () => {
 // ======================= JWT MIDDLEWARES ======================
 const SECRET = process.env.JWT_SECRET || "supersecretkey";
 
-// Optional authentication middleware (doesn't block if no token)
-function optionalAuth(req, res, next) {
-  const header = req.headers.authorization;
-  if (header) {
-    const token = header.split(" ")[1];
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, SECRET);
-        req.user = decoded;
-      } catch (err) {
-        console.log("⚠️ Invalid token, proceeding without auth");
-      }
-    }
-  }
-  next();
-}
-
-// Required authentication middleware (blocks if no token)
 function authenticate(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ success: false, message: "No token" });
@@ -412,25 +388,14 @@ app.post("/api/auth/login", async (req, res) => {
 // ================== BASIC TEST ROUTES =========================
 app.get("/", (req, res) => {
   res.json({
-    message: "🚀 Raj Tiles Server Running - Backward Compatible Mode",
+    message: "🚀 Raj Tiles Server Running",
     mongodb: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
     time: new Date(),
-    info: {
-      mode: "Backward Compatible",
-      description: "Works with or without userId - no frontend changes required",
-      usage: {
-        withoutUserId: "API works like before - shows all data",
-        withUserId: "Add ?userId=xxx to filter data by user"
-      }
-    }
   });
 });
 
 app.get("/api/me", authenticate, (req, res) => {
-  res.json({ 
-    user: req.user,
-    message: `Logged in as ${req.user.username} (${req.user.role})`
-  });
+  res.json({ user: req.user });
 });
 
 // ================== IMPORT ROUTES =========================
@@ -439,7 +404,6 @@ const adminRoutes = require("./src/routes/adminRoutes.js");
 const itemRoutes = require("./src/routes/itemRoutes.js");
 const userRoutes = require("./src/routes/userRoutes.js");
 
-// 🔥 All routes work WITHOUT authentication
 app.use("/api/products", productRoutes);
 app.use("/api/items", itemRoutes);
 app.use("/admin", adminRoutes);
@@ -467,13 +431,6 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
-  console.log(`✅ Backward Compatible Mode - No auth required`);
-  console.log(`📝 Your existing frontend will work without any changes`);
-  console.log(`\n👥 Test users created:`);
-  console.log(`   - user1 / password123 (sales) - DEFAULT USER`);
-  console.log(`   - user2 / password123 (sales)`);
-  console.log(`   - admin / admin123 (admin)`);
-  console.log(`\n📚 API Usage:`);
-  console.log(`   Without userId: Shows ALL data (works like before)`);
-  console.log(`   With userId:    Shows only that user's data`);
-  console.log(`   Example: GET /api/items?userId=<user_id>`);
+  console.log(`✅ Backward Compatible Mode`);
+  console.log(`👥 Test users: user1, user2, admin`);
+});
